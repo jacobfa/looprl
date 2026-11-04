@@ -1,0 +1,23 @@
+# @package _global_
+# RLVR-math protocol: DAPO-Math-17k train, AIME24/25 + AMC23 validation, 150 on-policy steps.
+data:
+  train_files: /dev/shm/looprl/data/dapo_math_train.parquet
+  val_files: /dev/shm/looprl/data/val_competition.parquet
+  train_batch_size: 64
+  max_prompt_length: 1024
+  max_response_length: 16384
+
+actor_rollout_ref:
+  actor:
+    optim:
+      lr_warmup_steps: 5
+  rollout:
+    max_model_len: 17408
+    val_kwargs:
+      n: 8
+
+trainer:
+  experiment_name: ${looprl.method}
+  total_training_steps: 150
+  save_freq: 25
+  test_freq: 20

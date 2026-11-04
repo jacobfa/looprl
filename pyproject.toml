@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "looprl"
+version = "0.1.0"
+description = "RL for looped LMs: GRPO vs RLTT vs loop-residual policy gradient on Dory-4B with verl"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[project.entry-points."vllm.general_plugins"]
+dory = "looprl.vllm_plugin:register"
+
+[tool.setuptools]
+packages = ["looprl"]

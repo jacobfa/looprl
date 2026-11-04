@@ -1,0 +1,37 @@
+# @package _global_
+# SDPO (Hübotter et al. 2026) no-rich-feedback protocol: one SciKnowEval domain or ToolUse per run, 32 prompts x 8
+# rollouts, non-thinking chat template, no std-normalised advantages, avg@16 at T=0.6 every 5 steps, fixed training-time budget.
+task: chemistry  # biology | chemistry | material | physics | tooluse
+
+looprl:
+  max_train_hours: 5
+
+data:
+  train_files: /dev/shm/looprl/data/sdpo/${task}/train.parquet
+  val_files: /dev/shm/looprl/data/sdpo/${task}/test.parquet
+  train_batch_size: 32
+  max_prompt_length: 2048
+  max_response_length: 8192
+  apply_chat_template_kwargs:
+    enable_thinking: false
+
+actor_rollout_ref:
+  actor:
+    optim:
+      lr_warmup_steps: 10
+  rollout:
+    max_model_len: 10240
+    val_kwargs:
+      temperature: 0.6
+      top_p: 0.95
+      n: 16
+
+algorithm:
+  norm_adv_by_std_in_grpo: false
+
+trainer:
+  experiment_name: ${looprl.method}-${task}
+  total_epochs: 30
+  total_training_steps: null
+  save_freq: 50
+  test_freq: 5

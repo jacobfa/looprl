@@ -1,0 +1,103 @@
+hydra:
+  searchpath:
+    - pkg://verl.trainer.config
+  run:
+    dir: /dev/shm/looprl/hydra/${now:%Y-%m-%d_%H-%M-%S}
+
+# ppo_trainer < this file < setup/<math|sdpo>.yaml < CLI
+defaults:
+  - ppo_trainer
+  - _self_
+  - setup: math
+
+# method: grpo | rltt | lrpg ; weights = RLTT loop weights (uniform | progressive)
+# alpha = LRPG residual coefficient; with fit_alpha it is only the initial value and is refit after every batch as
+#   alpha_next = sum<g_t,c_t> / (sum|c_t|^2 + eps) on that batch (idea.tex "fitting the residual coefficient")
+# lam > 0 adds deep supervision: lam * sg(A_t) * mean over non-final loops of log pi^(l)(y_t) (all_supervised.tex)
+# max_train_hours = stop after this much wall-clock training time (rollout + update, excl. validation) instead of a step count
+looprl:
+  method: grpo
+  alpha: 1.0
+  fit_alpha: true
+  weights: uniform
+  lam: 0.0
+  max_train_hours: null
+
+data:
+  filter_overlong_prompts: true
+  truncation: error
+  trust_remote_code: true
+  shuffle: true
+  seed: 1
+
+actor_rollout_ref:
+  model:
+    path: /dev/shm/looprl/models/dory-4b-L2
+    trust_remote_code: true
+    use_remove_padding: true
+    enable_gradient_checkpointing: true
+    override_config:  # derived from looprl.method / looprl.lam in main.py
+      rl_aux: null
+      rl_deep_supervision: false
+  actor:
+    strategy: fsdp2
+    ppo_mini_batch_size: ${data.train_batch_size}
+    ppo_epochs: 1
+    use_dynamic_bsz: true
+    ppo_max_token_len_per_gpu: 24576
+    entropy_coeff: 0.0
+    use_kl_loss: false
+    loss_agg_mode: token-mean
+    grad_clip: 1.0
+    optim:
+      lr: 1.0e-6
+      weight_decay: 0.01
+      clip_grad: 1.0
+    fsdp_config:
+      param_offload: false
+      optimizer_offload: false
+    checkpoint:
+      save_contents: [model, optimizer, extra, hf_model]
+  rollout:
+    name: vllm
+    mode: async
+    tensor_model_parallel_size: 1
+    gpu_memory_utilization: 0.6
+    n: 8
+    temperature: 1.0
+    top_p: 1.0
+    top_k: -1
+    max_num_batched_tokens: 16384
+    max_num_seqs: 512
+    log_prob_max_token_len_per_gpu: 49152
+    calculate_log_probs: true
+    val_kwargs:
+      temperature: 1.0
+      top_p: 1.0
+      top_k: -1
+      do_sample: true
+
+algorithm:
+  adv_estimator: grpo
+  norm_adv_by_std_in_grpo: true
+  use_kl_in_reward: false
+
+reward:
+  num_workers: 16
+  custom_reward_function:
+    path: ${oc.env:LOOPRL_ROOT}/looprl/reward.py
+    name: compute_score
+
+trainer:
+  project_name: looprl
+  logger: [console, wandb]
+  nnodes: 1
+  n_gpus_per_node: 2
+  total_epochs: 1
+  val_before_train: true
+  log_val_generations: 8
+  max_actor_ckpt_to_keep: 2
+  resume_mode: auto
+  default_local_dir: /dev/shm/looprl/ckpt/${trainer.experiment_name}
+  rollout_data_dir: /dev/shm/looprl/rollouts/${trainer.experiment_name}
+  validation_data_dir: /dev/shm/looprl/validation/${trainer.experiment_name}
