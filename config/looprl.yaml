@@ -38,8 +38,9 @@ actor_rollout_ref:
     trust_remote_code: true
     use_remove_padding: true
     enable_gradient_checkpointing: true
-    override_config:  # derived from looprl.method / looprl.lam in main.py
+    override_config:  # derived from looprl.method / looprl.divergence / looprl.lam in main.py
       rl_aux: null
+      rl_divergence: js
       rl_deep_supervision: false
   actor:
     strategy: fsdp2
