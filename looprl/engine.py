@@ -1,11 +1,11 @@
-"""Surfaces Dory's per-loop RL auxiliaries (loop_logp, kl_pq, d_y, logp_prev, alpha_stats) through verl's FSDP engine."""
+"""Surfaces Dory's per-loop RL auxiliaries (loop_logp, div_pq, d_y, logp_prev, alpha_stats) through verl's FSDP engine."""
 
 import torch
 
 from verl.utils import tensordict_utils as tu
 from verl.workers.engine.fsdp.transformer_impl import FSDPEngineWithLMHead
 
-AUX_KEYS = ("loop_logp", "kl_pq", "d_y", "logp_prev", "alpha_stats")
+AUX_KEYS = ("loop_logp", "div_pq", "d_y", "logp_prev", "alpha_stats")
 _orig_prepare_model_outputs = FSDPEngineWithLMHead.prepare_model_outputs
 
 

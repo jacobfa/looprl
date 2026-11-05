@@ -36,6 +36,7 @@ class DoryConfig(PreTrainedConfig):
     eos_token_id: int | list[int] | None = 11
     # RL auxiliaries computed by the training forward: None | "rltt" | "lrpg"; deep supervision adds per-loop log-probs
     rl_aux: str | None = None
+    rl_divergence: str = "js"  # LRPG loop divergence D(p || sg q): js | kl
     rl_deep_supervision: bool = False
     rl_temperature: float = 1.0
     rl_chunk_size: int = 2048
@@ -83,6 +84,8 @@ class DoryConfig(PreTrainedConfig):
             raise ValueError("invalid n_recurrent_loops / recurrent_kv_cache_mode")
         if self.rl_aux not in (None, "rltt", "lrpg"):
             raise ValueError(f"unknown rl_aux {self.rl_aux}")
+        if self.rl_divergence not in ("kl", "js"):
+            raise ValueError(f"unknown rl_divergence {self.rl_divergence}")
 
     def validate_rope(self):
         for kind in set(self.layer_types) - {"mlp"}:

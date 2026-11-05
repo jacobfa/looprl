@@ -12,13 +12,15 @@ defaults:
 
 # method: grpo | rltt | lrpg ; weights = RLTT loop weights (uniform | progressive)
 # alpha = LRPG residual coefficient; with fit_alpha it is only the initial value and is refit after every batch as
-#   alpha_next = sum<g_t,c_t> / (sum|c_t|^2 + eps) on that batch (idea.tex "fitting the residual coefficient")
-# lam > 0 adds deep supervision: lam * sg(A_t) * mean over non-final loops of log pi^(l)(y_t) (all_supervised.tex)
+#   alpha_next = sum<g_t,c_t> / (sum|c_t|^2 + eps) on that batch (fitting the residual coefficient)
+# divergence = LRPG loop divergence D(p^(L) || sg p^(L-1)): js | kl
+# lam > 0 adds deep supervision: lam * sg(A_t) * mean over non-final loops of log pi^(l)(y_t) 
 # max_train_hours = stop after this much wall-clock training time (rollout + update, excl. validation) instead of a step count
 looprl:
   method: grpo
   alpha: 1.0
   fit_alpha: true
+  divergence: js
   weights: uniform
   lam: 0.0
   max_train_hours: null

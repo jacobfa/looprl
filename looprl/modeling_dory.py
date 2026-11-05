@@ -4,6 +4,7 @@ Parameter names match the released checkpoint so FSDP <-> vLLM weight sync needs
 The forward optionally returns per-loop quantities used by the RLTT and loop-residual (LRPG) objectives.
 """
 
+import math
 from dataclasses import dataclass
 
 import torch
@@ -229,8 +230,8 @@ class DoryModel(DoryPreTrainedModel):
 @dataclass
 class DoryCausalLMOutput(CausalLMOutputWithPast):
     loop_logp: torch.Tensor | None = None  # (B, T, L-1): log P^(l)(y_t) for the non-final loops (RLTT / deep supervision)
-    kl_pq: torch.Tensor | None = None  # (B, T): KL(p_t || sg q_t), p = loop L, q = loop L-1 (LRPG)
-    d_y: torch.Tensor | None = None  # (B, T): d_t(y_t) = Delta_t(y_t) - E_p[Delta_t] (LRPG)
+    div_pq: torch.Tensor | None = None  # (B, T): D(p_t || sg q_t), D = KL or JS, p = loop L, q = loop L-1 (LRPG)
+    d_y: torch.Tensor | None = None  # (B, T): d_t(y_t) = Delta_t(y_t) - E_p[Delta_t], Delta = dD/dp (LRPG)
     logp_prev: torch.Tensor | None = None  # (B, T): log P^(L-1)(y_t)
     alpha_stats: torch.Tensor | None = None  # (B, T, 3): |u|^2, <u, p*d>, |p*d|^2 for fitting alpha (LRPG)
 
@@ -241,6 +242,7 @@ class DoryLMHead(nn.Module):
     def __init__(self, config: DoryConfig):
         super().__init__()
         self.std, self.tau, self.chunk = config.initializer_range, config.rl_temperature, config.rl_chunk_size
+        self.div = config.rl_divergence
         self.weight = nn.Parameter(torch.empty(config.vocab_size, config.hidden_size))
         self.logit_scale = nn.Parameter(torch.full((config.vocab_size,), config.initializer_range))
 
@@ -251,21 +253,26 @@ class DoryLMHead(nn.Module):
         return (torch.log_softmax(self.logits(h, self.tau), -1).gather(-1, y[:, None]).squeeze(-1),)
 
     def _lrpg(self, h, h_prev, y):
-        z = self.logits(h, self.tau)
-        logp = torch.log_softmax(z, -1)
+        logp = torch.log_softmax(self.logits(h, self.tau), -1)
         p = logp.exp()
         with torch.no_grad():
-            z_prev = self.logits(h_prev, self.tau)
-            logq = torch.log_softmax(z_prev, -1)
-            d = z - z_prev
-            d = d - (p * d).sum(-1, keepdim=True)
+            logq = torch.log_softmax(self.logits(h_prev, self.tau), -1)
+        if self.div == "js":
+            logm = torch.logaddexp(logp, logq) - math.log(2)
+            delta = 0.5 * (logp - logm)
+            div = (p * delta).sum(-1) + 0.5 * (logq.exp() * (logq - logm)).sum(-1)
+        else:
+            delta = logp - logq
+            div = (p * delta).sum(-1)
+        with torch.no_grad():
+            d = delta - (p * delta).sum(-1, keepdim=True)
             d_y = d.gather(-1, y[:, None]).squeeze(-1)
             logp_prev = logq.gather(-1, y[:, None]).squeeze(-1)
             # sufficient statistics for the residual-coefficient fit: with u = e_y - p, c = d_y u - p*d,
             # <g,c> = A (d_y |u|^2 - <u,p*d>) and |c|^2 = d_y^2 |u|^2 - 2 d_y <u,p*d> + |p*d|^2
             p_y, p2 = p.gather(-1, y[:, None]).squeeze(-1), p * p
             stats = torch.stack([1 - 2 * p_y + p2.sum(-1), p_y * d_y - (p2 * d).sum(-1), (p2 * d * d).sum(-1)], -1)
-        return (p * (logp - logq)).sum(-1), d_y, logp_prev, stats
+        return div, d_y, logp_prev, stats
 
     def forward(self, h, aux=None, y=None, h_prev=None):
         if aux is None:
@@ -311,7 +318,7 @@ class DoryForCausalLM(DoryPreTrainedModel):
             else:
                 with torch.no_grad():
                     h_prev = self.backbone.run_output(states[-2].detach(), ctx)
-            out.kl_pq, out.d_y, out.logp_prev, out.alpha_stats = self.lm_head(h, "lrpg", y, h_prev)
+            out.div_pq, out.d_y, out.logp_prev, out.alpha_stats = self.lm_head(h, "lrpg", y, h_prev)
         return out
 
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Usage: METHOD=grpo|rltt|lrpg [LAM=0] [FIT_ALPHA=1] [ALPHA=1.0] [SETUP=math|sdpo] [TASK=chemistry] [WEIGHTS=uniform]
-#        [RUN=name] [GPUS=0,1] scripts/train.sh [extra hydra overrides]
+# Usage: METHOD=grpo|rltt|lrpg [LAM=0] [FIT_ALPHA=1] [ALPHA=1.0] [DIV=js|kl] [SETUP=math|sdpo] [TASK=chemistry]
+#        [WEIGHTS=uniform] [RUN=name] [GPUS=0,1] scripts/train.sh [extra hydra overrides]
 set -euo pipefail
 export LOOPRL_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 source /venv/rl/bin/activate
@@ -9,11 +9,13 @@ METHOD=${METHOD:-grpo}
 LAM=${LAM:-0}            # deep-supervision weight; > 0 enables it
 FIT_ALPHA=${FIT_ALPHA:-1}  # lrpg: refit alpha every batch (1) or keep ALPHA fixed (0)
 ALPHA=${ALPHA:-1.0}
+DIV=${DIV:-js}           # lrpg: loop divergence, js | kl
 SETUP=${SETUP:-math}
 TASK=${TASK:-chemistry}  # sdpo only: biology | chemistry | material | physics | tooluse
 WEIGHTS=${WEIGHTS:-uniform}
 GPUS=${GPUS:-0,1}
 NAME=$METHOD
+if [ "$METHOD" = lrpg ] && [ "$DIV" != js ]; then NAME+=-$DIV; fi
 if [ "$METHOD" = lrpg ] && [ "$FIT_ALPHA" = 0 ]; then NAME+=-a$ALPHA; fi
 if [ "$LAM" != 0 ]; then NAME+=-ds$LAM; fi
 case $SETUP in
@@ -38,10 +40,10 @@ NOISE+='|blocking ray\.get inside async actor|SimpleStorageUnit|Time range: last
 NOISE+='|OMP_NUM_THREADS|Detected \[openai\]|W&B Weave|weave-docs|Loading weights: +[0-9]+%'
 
 LOG="$LOOPRL_ROOT/logs/train_$RUN.log"
-echo "[$(date '+%F %T')] launch METHOD=$METHOD LAM=$LAM FIT_ALPHA=$FIT_ALPHA ALPHA=$ALPHA SETUP=$SETUP_ARGS WEIGHTS=$WEIGHTS GPUS=$GPUS RUN=$RUN $*" | tee -a "$LOG"
+echo "[$(date '+%F %T')] launch METHOD=$METHOD LAM=$LAM FIT_ALPHA=$FIT_ALPHA ALPHA=$ALPHA DIV=$DIV SETUP=$SETUP_ARGS WEIGHTS=$WEIGHTS GPUS=$GPUS RUN=$RUN $*" | tee -a "$LOG"
 cd "$LOOPRL_ROOT"
 python -m looprl.main $SETUP_ARGS \
   looprl.method="$METHOD" looprl.alpha="$ALPHA" looprl.fit_alpha="$([ "$FIT_ALPHA" = 0 ] && echo false || echo true)" \
-  looprl.weights="$WEIGHTS" looprl.lam="$LAM" \
+  looprl.divergence="$DIV" looprl.weights="$WEIGHTS" looprl.lam="$LAM" \
   trainer.experiment_name="$RUN" trainer.n_gpus_per_node="$N_GPUS" \
   "$@" 2>&1 | sed -u 's/\x1b\[[0-9;]*m//g' | grep --line-buffered -vE "$NOISE" | tee -a "$LOG"

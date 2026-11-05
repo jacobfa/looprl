@@ -33,6 +33,7 @@ class LoopTrainer(PPOTrainerSync):
         actor_config: ActorConfig = omega_conf_to_dataclass(self.config.actor_rollout_ref.actor)
         knobs = OmegaConf.to_container(self.config.looprl, resolve=True)
         self.max_train_hours, self.fit_alpha, self.alpha = (knobs.pop(k) for k in ("max_train_hours", "fit_alpha", "alpha"))
+        knobs.pop("divergence")
         self._loss_fn = partial(loop_pg_loss, config=actor_config, **knobs)
         self.actor_rollout_wg.set_loss_fn(partial(self._loss_fn, alpha=self.alpha))
         self._t0, self._step0, self._train_s, self._best = time.time(), self.global_steps, 0.0, {}
@@ -90,6 +91,7 @@ class LoopTaskRunner(TaskRunnerV1.__ray_actor_class__):
 def main(config):
     model_cfg = config.actor_rollout_ref.model.override_config
     model_cfg.rl_aux = None if config.looprl.method == "grpo" else config.looprl.method
+    model_cfg.rl_divergence = config.looprl.divergence
     model_cfg.rl_deep_supervision = config.looprl.lam > 0
     auto_set_device(config)
     validate_config(config, use_reference_policy=need_reference_policy(config), use_critic=need_critic(config))

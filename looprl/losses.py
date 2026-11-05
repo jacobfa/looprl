@@ -56,12 +56,12 @@ def loop_pg_loss(config, model_output, data, dp_group=None, method="grpo", alpha
         logps = torch.cat([aux["loop_logp"], log_prob.unsqueeze(-1)], dim=-1)
         score = (logps * loop_weights(logps.shape[-1], weights, logps.device)).sum(-1)
     elif method == "lrpg":
-        d_y, kl_pq = aux["d_y"].detach(), aux["kl_pq"]
+        d_y, div_pq = aux["d_y"].detach(), aux["div_pq"]
         metrics.update(
             {
                 "loop/d_y_mean": masked_mean(d_y, mask),
                 "loop/d_y_std": masked_mean(d_y.pow(2), mask).sqrt(),
-                "loop/kl_pq": masked_mean(kl_pq.detach(), mask),
+                "loop/div_pq": masked_mean(div_pq.detach(), mask),
                 "loop/logp_gap": masked_mean(log_prob.detach() - aux["logp_prev"], mask),
                 "loop/corr_adv_d_y": masked_corr(adv, d_y, mask),
             }
@@ -80,7 +80,7 @@ def loop_pg_loss(config, model_output, data, dp_group=None, method="grpo", alpha
 
     loss_mat = -adv * torch.exp(score - score.detach())
     if method == "lrpg":
-        loss_mat = loss_mat - alpha * aux["kl_pq"]
+        loss_mat = loss_mat - alpha * aux["div_pq"]
     if lam > 0:
         lp = aux["loop_logp"]
         loss_mat = loss_mat - lam * adv0 * torch.exp(lp - lp.detach()).mean(-1)
