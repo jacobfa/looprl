@@ -45,7 +45,7 @@ def loop_pg_loss(config, model_output, data, dp_group=None, method="grpo", alpha
     d = data.select("response_mask", "old_log_probs", "advantages").to_padded_tensor()
     mask = d["response_mask"].to(bool)
     adv = adv0 = d["advantages"].detach()
-    metrics = {}
+    metrics, sums = {}, {} 
 
     if "loop_logp" in aux:
         metrics["loop/logp_gap"] = masked_mean(log_prob.detach() - aux["loop_logp"][..., -1].detach(), mask)
@@ -76,7 +76,7 @@ def loop_pg_loss(config, model_output, data, dp_group=None, method="grpo", alpha
             "loop/alpha_den": ((d_y.pow(2) * uu - 2 * d_y * upd + pdd) * mask).sum(),
         }
     else:
-        score, sums = log_prob, {}
+        score = log_prob
 
     loss_mat = -adv * torch.exp(score - score.detach())
     if method == "lrpg":
